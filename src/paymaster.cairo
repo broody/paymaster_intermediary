@@ -9,6 +9,7 @@ pub trait IPaymasterIntermediary<TContractState> {
     fn buy_game_via_paymaster(ref self: TContractState, to: ContractAddress) -> u64;
     fn add_paymaster(ref self: TContractState, paymaster: ContractAddress);
     fn remove_paymaster(ref self: TContractState, paymaster: ContractAddress);
+    fn treasury_balance(self: @TContractState) -> u256;
 }
 
 #[starknet::contract]
@@ -107,11 +108,6 @@ mod PaymasterIntermediary {
             }.buy_game(PaymentType::Ticket, Option::None, to, true)
         }
 
-        fn set_treasury(ref self: ContractState, treasury: ContractAddress) {
-            self.ownable.assert_only_owner();
-            self.treasury.write(treasury);
-        }
-
         fn add_paymaster(ref self: ContractState, paymaster: ContractAddress) {
             self.ownable.assert_only_owner();
             self.accesscontrol._grant_role(super::PAYMASTER_ROLE, paymaster);
@@ -120,6 +116,27 @@ mod PaymasterIntermediary {
         fn remove_paymaster(ref self: ContractState, paymaster: ContractAddress) {
             self.ownable.assert_only_owner();
             self.accesscontrol._revoke_role(super::PAYMASTER_ROLE, paymaster);
+        }
+
+        fn set_treasury(ref self: ContractState, treasury: ContractAddress) {
+            self.ownable.assert_only_owner();
+            self.treasury.write(treasury);
+        }
+
+        fn treasury_balance(self: @ContractState) -> u256 {
+            let cost_to_play: u256 = ITicketBoothDispatcher {
+                contract_address: self.ticket_booth.read()
+            }.cost_to_play().into();
+
+            let dungeon_ticket = ITicketBoothDispatcher {
+                contract_address: self.ticket_booth.read()
+            }.payment_token();
+            
+            let balance = IERC20Dispatcher {
+                contract_address: dungeon_ticket
+            }.balance_of(self.treasury.read());
+
+            balance / cost_to_play
         }
     }
 
