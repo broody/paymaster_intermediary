@@ -1,15 +1,22 @@
 use starknet::ContractAddress;
 
 const PAYMASTER_ROLE: felt252 = selector!("PAYMASTER_ROLE");
+const SETTER_ROLE: felt252 = selector!("SETTER_ROLE");
 
 #[starknet::interface]
 pub trait IPaymasterIntermediary<TContractState> {
-    fn set_ls_contracts(ref self: TContractState, ticket_booth: ContractAddress);
+    fn set_ls_dungeon(ref self: TContractState, dungeon: ContractAddress);
     fn set_treasury(ref self: TContractState, treasury: ContractAddress);
     fn buy_game_via_paymaster(ref self: TContractState, to: ContractAddress) -> u64;
     fn add_paymaster(ref self: TContractState, paymaster: ContractAddress);
     fn remove_paymaster(ref self: TContractState, paymaster: ContractAddress);
+    fn add_setter(ref self: TContractState, setter: ContractAddress);
+    fn remove_setter(ref self: TContractState, setter: ContractAddress);
+
+    fn treasury(self: @TContractState) -> ContractAddress;
     fn treasury_balance(self: @TContractState) -> u256;
+    fn dungeon(self: @TContractState) -> ContractAddress;
+    fn dungeon_ticket(self: @TContractState) -> ContractAddress;
 }
 
 #[starknet::contract]
@@ -49,7 +56,7 @@ mod PaymasterIntermediary {
         #[substorage(v0)]
         src5: SRC5Component::Storage,
         treasury: ContractAddress,
-        ticket_booth: ContractAddress,
+        dungeon: ContractAddress,
     }
 
     #[event]
@@ -73,26 +80,22 @@ mod PaymasterIntermediary {
         self.ownable.initializer(owner);
         self.accesscontrol.initializer();
         self.accesscontrol._grant_role(DEFAULT_ADMIN_ROLE, owner);
+        self.accesscontrol._grant_role(super::SETTER_ROLE, owner);
     }
 
     #[abi(embed_v0)]
-    impl PaymasterIntermediaryImpl of super::IPaymasterIntermediary<ContractState> {
-        fn set_ls_contracts(ref self: ContractState, ticket_booth: ContractAddress) {
-            self.ownable.assert_only_owner();
-            self.ticket_booth.write(ticket_booth);
-        }
-        
+    impl PaymasterIntermediaryImpl of super::IPaymasterIntermediary<ContractState> {        
         fn buy_game_via_paymaster(ref self: ContractState, to: ContractAddress) -> u64 {
             let caller = get_caller_address();
 
             assert!(self.accesscontrol.has_role(super::PAYMASTER_ROLE, caller), "Caller is not a paymaster");
 
             let dungeon_ticket = ITicketBoothDispatcher {
-                contract_address: self.ticket_booth.read()
+                contract_address: self.dungeon.read()
             }.payment_token();
 
             let cost_to_play: u256 = ITicketBoothDispatcher {
-                contract_address: self.ticket_booth.read()
+                contract_address: self.dungeon.read()
             }.cost_to_play().into();
 
             IERC20Dispatcher { 
@@ -101,10 +104,10 @@ mod PaymasterIntermediary {
 
             IERC20Dispatcher {
                 contract_address: dungeon_ticket
-            }.approve(self.ticket_booth.read(), cost_to_play);
+            }.approve(self.dungeon.read(), cost_to_play);
 
             ITicketBoothDispatcher {
-                contract_address: self.ticket_booth.read()
+                contract_address: self.dungeon.read()
             }.buy_game(PaymentType::Ticket, Option::None, to, true)
         }
 
@@ -118,18 +121,37 @@ mod PaymasterIntermediary {
             self.accesscontrol._revoke_role(super::PAYMASTER_ROLE, paymaster);
         }
 
-        fn set_treasury(ref self: ContractState, treasury: ContractAddress) {
+        fn add_setter(ref self: ContractState, setter: ContractAddress) {
             self.ownable.assert_only_owner();
+            self.accesscontrol._grant_role(super::SETTER_ROLE, setter);
+        }
+
+        fn remove_setter(ref self: ContractState, setter: ContractAddress) {
+            self.ownable.assert_only_owner();
+            self.accesscontrol._revoke_role(super::SETTER_ROLE, setter);
+        }
+
+        fn set_ls_dungeon(ref self: ContractState, dungeon: ContractAddress) {
+            assert!(self.accesscontrol.has_role(super::SETTER_ROLE, get_caller_address()), "Caller is not a setter");
+            self.dungeon.write(dungeon);
+        }
+
+        fn set_treasury(ref self: ContractState, treasury: ContractAddress) {
+            assert!(self.accesscontrol.has_role(super::SETTER_ROLE, get_caller_address()), "Caller is not a setter");
             self.treasury.write(treasury);
+        }
+
+        fn treasury(self: @ContractState) -> ContractAddress {
+            self.treasury.read()
         }
 
         fn treasury_balance(self: @ContractState) -> u256 {
             let cost_to_play: u256 = ITicketBoothDispatcher {
-                contract_address: self.ticket_booth.read()
+                contract_address: self.dungeon.read()
             }.cost_to_play().into();
 
             let dungeon_ticket = ITicketBoothDispatcher {
-                contract_address: self.ticket_booth.read()
+                contract_address: self.dungeon.read()
             }.payment_token();
             
             let balance = IERC20Dispatcher {
@@ -137,6 +159,16 @@ mod PaymasterIntermediary {
             }.balance_of(self.treasury.read());
 
             balance / cost_to_play
+        }
+
+        fn dungeon(self: @ContractState) -> ContractAddress {
+            self.dungeon.read()
+        }
+
+        fn dungeon_ticket(self: @ContractState) -> ContractAddress {
+            ITicketBoothDispatcher {
+                contract_address: self.dungeon.read()
+            }.payment_token()
         }
     }
 
