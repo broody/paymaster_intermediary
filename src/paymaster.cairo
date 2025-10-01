@@ -7,7 +7,7 @@ const SETTER_ROLE: felt252 = selector!("SETTER_ROLE");
 pub trait IPaymasterIntermediary<TContractState> {
     fn set_ls_dungeon(ref self: TContractState, dungeon: ContractAddress);
     fn set_treasury(ref self: TContractState, treasury: ContractAddress);
-    fn buy_game_via_paymaster(ref self: TContractState, to: ContractAddress) -> u64;
+    fn buy_game_via_paymaster(ref self: TContractState, to: ContractAddress, name: felt252) -> u64;
     fn add_paymaster(ref self: TContractState, paymaster: ContractAddress);
     fn remove_paymaster(ref self: TContractState, paymaster: ContractAddress);
     fn add_setter(ref self: TContractState, setter: ContractAddress);
@@ -85,7 +85,7 @@ mod PaymasterIntermediary {
 
     #[abi(embed_v0)]
     impl PaymasterIntermediaryImpl of super::IPaymasterIntermediary<ContractState> {        
-        fn buy_game_via_paymaster(ref self: ContractState, to: ContractAddress) -> u64 {
+        fn buy_game_via_paymaster(ref self: ContractState, to: ContractAddress, name: felt252) -> u64 {
             let caller = get_caller_address();
 
             assert!(self.accesscontrol.has_role(super::PAYMASTER_ROLE, caller), "Caller is not a paymaster");
@@ -108,7 +108,7 @@ mod PaymasterIntermediary {
 
             ITicketBoothDispatcher {
                 contract_address: self.dungeon.read()
-            }.buy_game(PaymentType::Ticket, Option::None, to, true)
+            }.buy_game(PaymentType::Ticket, Option::Some(name), to, true)
         }
 
         fn add_paymaster(ref self: ContractState, paymaster: ContractAddress) {
